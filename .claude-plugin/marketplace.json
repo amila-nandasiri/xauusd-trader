@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "xauusd-trader",
+  "description": "The XAUUSD Trader skill pack for Claude",
+  "owner": {"name": "Amila Dewapriya"},
+  "plugins": [
+    {
+      "name": "xauusd-trader",
+      "description": "Gold (XAUUSD) on MT5: lot sizing, risk gate with news blackouts, MT5 ticket, sessions, alerts, journal.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

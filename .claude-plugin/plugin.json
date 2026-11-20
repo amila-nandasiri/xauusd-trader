@@ -1,0 +1,9 @@
+{
+  "name": "xauusd-trader",
+  "description": "5 Claude skills for trading gold (XAUUSD) on MT5: lot sizing from your stop, a risk gate with news blackouts, the exact MT5 ticket, sessions and alerts, and a trade journal. Never places an order.",
+  "version": "1.0.0",
+  "author": {"name": "Amila Dewapriya"},
+  "license": "MIT",
+  "keywords": ["claude-skills", "xauusd", "gold", "mt5", "metatrader", "forex", "risk-management", "position-sizing"],
+  "skills": "./"
+}
