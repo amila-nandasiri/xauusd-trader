@@ -24,6 +24,7 @@ risk = load("xau-risk", "check")
 news = load("xau-news", "news")
 ticket = load("xau-ticket", "ticket")
 alerts = load("xau-alerts", "alerts")
+pb = load("xau-pullback", "pullback")
 xt = load("xau-alerts", "xautime")
 CFG = dict(size.DEFAULTS, balance=500, risk_per_trade_pct=1.0)
 RCFG = dict(risk.LIMITS, balance=500)
@@ -84,6 +85,95 @@ NOW = T("2026-11-20T13:30")
 
 def blocks(res):
     return [r[1] for r in res if r[0] == "BLOCK"]
+
+
+class FixedDollars(unittest.TestCase):
+    CFG = dict(size.DEFAULTS, balance=1000, risk_per_trade_usd=20, tp_usd=40, max_lot=1.0)
+
+    def test_twenty_risk_forty_target(self):
+        t = size.size(self.CFG, "buy", 4050, 4046, spread=0.25)   # $425/lot -> 0.04 lot
+        self.assertEqual(t["lots"], 0.04)
+        self.assertEqual(t["risk_usd"], 17.0)
+        self.assertEqual(t["tp"], 4060.0)
+        self.assertEqual(t["reward_usd"], 40.0)
+
+    def test_percent_flag_overrides(self):
+        t = size.size(self.CFG, "buy", 4050, 4046, risk_pct=0.5)    # $5 -> 0.01
+        self.assertEqual(t["lots"], 0.01)
+
+    def test_risk_gate_in_dollars(self):
+        cfg = dict(RCFG, balance=1000, max_risk_per_trade_usd=20, max_daily_loss_usd=40, min_rr=2.0)
+        ok = trade(side="buy", entry=4050, sl=4046, tp=4060, lots=0.04, balance=1000)
+        self.assertEqual(blocks(risk.check(ok, cfg, {}, CAL, NOW)), [])
+        self.assertIn("risk", blocks(risk.check(dict(ok, lots=0.05), cfg, {}, CAL, NOW)))
+        j = {"trades": [{"id": 1, "status": "closed", "placed_at": "2026-11-20T09:00:00+00:00",
+                         "closed_at": "2026-11-20T09:30:00+00:00", "pnl_usd": -25}]}
+        self.assertIn("daily loss", blocks(risk.check(ok, cfg, j, CAL, NOW)))
+
+
+def candles_up():
+    """250 bars of steady uptrend, a 4-bar dip to the EMA20, then a strong green bar."""
+    c, p, t0 = [], 4000.0, dt.datetime(2026, 11, 18, 8, 0, tzinfo=dt.timezone.utc)
+    for k in range(260):
+        o = p
+        p += 0.3 if k % 5 else -0.2
+        c.append({"time": t0 + dt.timedelta(minutes=5 * k), "open": o, "high": max(o, p) + 0.2, "low": min(o, p) - 0.2, "close": p})
+    for k in range(4):
+        o = p
+        p -= 0.9
+        c.append({"time": c[-1]["time"] + dt.timedelta(minutes=5), "open": o, "high": o + 0.1, "low": p - 0.3, "close": p})
+    o = p
+    p += 2.5
+    c.append({"time": c[-1]["time"] + dt.timedelta(minutes=5), "open": o, "high": p + 0.1, "low": o - 0.1, "close": p})
+    return c
+
+
+class Pullback(unittest.TestCase):
+    LIM = {"min_sl_usd": 1.0, "max_sl_usd": 10.0}
+
+    def test_ema(self):
+        e = pb.ema([1, 2, 3, 4, 5], 3)
+        self.assertEqual(e[:2], [None, None])
+        self.assertAlmostEqual(e[2], 2.0)
+        self.assertAlmostEqual(e[4], 4.0)
+
+    def test_long_signal(self):
+        c = candles_up()
+        r = dict(pb.RULES, max_sl_atr=5)
+        ind = pb.indicators(c, r)
+        sig, why = pb.signal_at(c, ind, len(c) - 1, r, self.LIM)
+        self.assertIsNotNone(sig, why)
+        self.assertEqual(sig["side"], "buy")
+        self.assertAlmostEqual(sig["sl"], min(x["low"] for x in c[-5:]) - 0.30, places=2)
+        # the same bar with the default 3 x ATR cap is filtered out, with the reason
+        sig, why = pb.signal_at(c, ind, len(c) - 1, pb.RULES, self.LIM)
+        self.assertIsNone(sig)
+        self.assertIn("ATR", why)
+
+    def test_no_signal_mid_pullback(self):
+        c = candles_up()[:-1]
+        ind = pb.indicators(c, pb.RULES)
+        sig, why = pb.signal_at(c, ind, len(c) - 1, pb.RULES, self.LIM)
+        self.assertIsNone(sig)
+        self.assertIn("waiting", why)
+
+    def test_reads_mt5_and_tradingview(self):
+        mt5 = "<DATE>\t<TIME>\t<OPEN>\t<HIGH>\t<LOW>\t<CLOSE>\t<TICKVOL>\n2026.11.20\t10:00:00\t4050.1\t4051\t4049.5\t4050.6\t300\n"
+        c = pb.read_candles(mt5, tz=2)
+        self.assertEqual(c[0]["time"].isoformat(), "2026-11-20T08:00:00+00:00")
+        tv = "time,open,high,low,close,EMA\n1795651200,4050.1,4051,4049.5,4050.6,4049\n"
+        self.assertEqual(pb.read_candles(tv)[0]["close"], 4050.6)
+
+    def test_backtest_runs(self):
+        text = open(os.path.join(FIX, "xauusd_m5_synthetic.csv")).read()
+        c = pb.read_candles(text, 2)
+        r = dict(pb.RULES)
+        ind = pb.indicators(c, r)
+        full = dict(size.DEFAULTS, balance=1e9, risk_per_trade_usd=20, tp_usd=40, max_lot=1.0)
+        trades = pb.simulate(c, ind, r, self.LIM, size, full, 0.25, xt.sessions_now)
+        self.assertGreater(len(trades), 0)
+        for t in trades:
+            self.assertLessEqual(-t["pnl"], 20.0001) if t["result"] == "loss" else self.assertLess(t["pnl"], 40.01)
 
 
 class Risk(unittest.TestCase):
@@ -176,7 +266,7 @@ class Alerts(unittest.TestCase):
 
 class Repo(unittest.TestCase):
     def test_every_skill_has_frontmatter(self):
-        for s in ("xau-size", "xau-risk", "xau-ticket", "xau-alerts", "xau-news"):
+        for s in ("xau-size", "xau-risk", "xau-ticket", "xau-alerts", "xau-news", "xau-pullback"):
             text = open(os.path.join(ROOT, s, "SKILL.md")).read()
             self.assertTrue(text.startswith("---\nname: %s\n" % s), s)
             self.assertIn("description:", text.split("---")[1])

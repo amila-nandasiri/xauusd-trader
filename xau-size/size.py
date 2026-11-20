@@ -9,10 +9,11 @@ How XAUUSD is priced (FP Markets and most MT5 brokers, check your symbol
 specification): 1.00 lot = 100 troy oz, so a $1.00 move in gold is $100 per
 1.00 lot, $1 per 0.01 lot. Minimum 0.01 lot, step 0.01.
 
-  risk $      = balance x risk_per_trade_pct / 100
+  risk $      = risk_per_trade_usd (fixed $, e.g. 20), else balance x risk_per_trade_pct / 100
   loss / lot  = (|entry - stop| + spread) x contract_size
   lots        = risk $ / loss per lot, rounded DOWN to the lot step
   margin      = lots x contract_size x entry / leverage
+  target      = --tp price, or --rr x stop distance, or where it makes tp_usd (e.g. 40)
 
 Writes xau/trade.json (the proposal) with --write. Never places anything.
 Standard library only.
@@ -36,6 +37,8 @@ DEFAULTS = {
     "leverage": 500,
     "risk_per_trade_pct": 1.0,
     "default_spread": 0.0,
+    "risk_per_trade_usd": None,
+    "tp_usd": None,
 }
 
 
@@ -52,13 +55,15 @@ def floor_step(x, step):
     return round(n * step, 8)
 
 
-def size(cfg, side, entry, sl, tp=None, rr=None, spread=None, balance=None, risk_pct=None, order_type="market"):
+def size(cfg, side, entry, sl, tp=None, rr=None, spread=None, balance=None, risk_pct=None, order_type="market",
+         risk_usd=None, tp_usd=None):
     side = side.lower()
     if side not in ("buy", "sell"):
         raise ValueError("side must be buy or sell")
     balance = float(balance if balance is not None else cfg["balance"] or 0)
     if balance <= 0:
         raise ValueError("no balance: set \"balance\" in xau/config.json or pass --balance")
+    risk_pct_arg = risk_pct
     risk_pct = float(risk_pct if risk_pct is not None else cfg["risk_per_trade_pct"])
     spread = float(spread if spread is not None else cfg.get("default_spread", 0) or 0)
     entry, sl = float(entry), float(sl)
@@ -67,17 +72,25 @@ def size(cfg, side, entry, sl, tp=None, rr=None, spread=None, balance=None, risk
         raise ValueError("stop-loss is on the wrong side: a %s needs the stop %s the entry"
                          % (side, "below" if side == "buy" else "above"))
     sl_dist = abs(entry - sl)
+    cs = float(cfg["contract_size"])
+    if risk_usd is None:
+        fixed = cfg.get("risk_per_trade_usd")
+        risk_usd = float(fixed) if fixed and risk_pct_arg is None else balance * risk_pct / 100.0
+    risk_usd = float(risk_usd)
+    loss_per_lot = (sl_dist + spread) * cs
+    raw = risk_usd / loss_per_lot
+    lots = min(floor_step(raw, cfg["lot_step"]), float(cfg["max_lot"]))
     if tp is None and rr:
         tp = round(entry + sign * sl_dist * float(rr), 2)
+    tp_usd = tp_usd if tp_usd is not None else cfg.get("tp_usd")
+    if tp is None and tp_usd and lots >= cfg["min_lot"] - 1e-9:
+        # target price that makes tp_usd at this lot size (rounded away from entry to the cent)
+        dist = float(tp_usd) / (lots * cs)
+        tp = round(entry + sign * (math.ceil(dist * 100 - 1e-9) / 100.0), 2)
     if tp is not None:
         tp = float(tp)
         if (tp - entry) * sign <= 0:
             raise ValueError("take-profit is on the wrong side of the entry")
-    cs = float(cfg["contract_size"])
-    risk_usd = balance * risk_pct / 100.0
-    loss_per_lot = (sl_dist + spread) * cs
-    raw = risk_usd / loss_per_lot
-    lots = min(floor_step(raw, cfg["lot_step"]), float(cfg["max_lot"]))
     notes = []
     too_small = lots < cfg["min_lot"] - 1e-9
     if too_small:
@@ -141,7 +154,9 @@ def main(argv=None):
     ap.add_argument("--type", default="market", choices=["market", "limit", "stop"])
     ap.add_argument("--spread", type=float, help="current spread in $ (MT5 shows it in points: 25 points = 0.25)")
     ap.add_argument("--balance", type=float)
-    ap.add_argument("--risk", type=float, help="risk %% for this trade (default from config)")
+    ap.add_argument("--risk", type=float, help="risk %% for this trade (overrides risk_per_trade_usd)")
+    ap.add_argument("--risk-usd", type=float, help="risk in $ for this trade (default: risk_per_trade_usd in config)")
+    ap.add_argument("--tp-usd", type=float, help="set the target where it makes this many $ (default: tp_usd in config)")
     ap.add_argument("--setup", default="", help="name of the setup, e.g. '5m pullback'")
     ap.add_argument("--config", default="xau/config.json")
     ap.add_argument("--write", action="store_true", help="write xau/trade.json")
@@ -149,7 +164,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     cfg = load_config(a.config)
     try:
-        t = size(cfg, a.side, a.entry, a.sl, a.tp, a.rr, a.spread, a.balance, a.risk, a.type)
+        t = size(cfg, a.side, a.entry, a.sl, a.tp, a.rr, a.spread, a.balance, a.risk, a.type, a.risk_usd, a.tp_usd)
     except ValueError as e:
         print("ERROR: %s" % e, file=sys.stderr)
         return 2

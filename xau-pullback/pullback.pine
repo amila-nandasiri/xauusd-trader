@@ -1,0 +1,79 @@
+//@version=5
+// XAUUSD 5m EMA trend pullback: the same rules as xau-pullback/pullback.py.
+// Add to a 5-minute XAUUSD chart (Pine Editor > paste > Add to chart).
+// Create alerts with "Pullback BUY" / "Pullback SELL" and "Once per bar close".
+// Not tested by the author of this file on TradingView: compare a few signals with
+// `python3 pullback.py backtest` on the same candles before relying on it.
+indicator("XAUUSD 5m Pullback (xau-pullback)", overlay=true)
+
+emaFastLen = input.int(20, "EMA fast")
+emaMidLen  = input.int(50, "EMA mid")
+emaSlowLen = input.int(200, "EMA slow")
+slopeBars  = input.int(10, "EMA mid slope bars")
+lookback   = input.int(8, "Pullback lookback bars")
+slBuffer   = input.float(0.30, "Stop buffer ($)")
+atrLen     = input.int(14, "ATR length")
+maxSlAtr   = input.float(3.0, "Max stop in ATRs")
+minSl      = input.float(1.0, "Min stop distance ($)")
+maxSl      = input.float(10.0, "Max stop distance ($)")
+riskUsd    = input.float(20, "Risk per trade ($)")
+tpUsd      = input.float(40, "Target per trade ($)")
+contract   = input.float(100, "Contract size (oz per lot)")
+
+f = ta.ema(close, emaFastLen)
+m = ta.ema(close, emaMidLen)
+s = ta.ema(close, emaSlowLen)
+a = ta.atr(atrLen)
+
+up   = m > s and close > s and m > m[slopeBars]
+down = m < s and close < s and m < m[slopeBars]
+
+// bars back (1..lookback) to the earliest touch of the fast EMA
+touchUp = 0
+touchDn = 0
+for k = lookback to 1
+    if touchUp == 0 and low[k] <= f[k]
+        touchUp := k
+    if touchDn == 0 and high[k] >= f[k]
+        touchDn := k
+
+deepUp = false
+deepDn = false
+lowest  = low
+highest = high
+if touchUp > 0
+    for k = touchUp to 1
+        deepUp := deepUp or close[k] < m[k]
+        lowest := math.min(lowest, low[k])
+if touchDn > 0
+    for k = touchDn to 1
+        deepDn := deepDn or close[k] > m[k]
+        highest := math.max(highest, high[k])
+
+longTrig  = up and touchUp > 0 and not deepUp and close > open and close > f and close > high[1]
+shortTrig = down and touchDn > 0 and not deepDn and close < open and close < f and close < low[1]
+
+slLong  = lowest - slBuffer
+slShort = highest + slBuffer
+dLong   = close - slLong
+dShort  = slShort - close
+okLong  = longTrig and dLong >= minSl and dLong <= maxSl and dLong <= maxSlAtr * a
+okShort = shortTrig and dShort >= minSl and dShort <= maxSl and dShort <= maxSlAtr * a
+
+lotsFor(d) => math.floor(riskUsd / (d * contract) / 0.01) * 0.01
+
+plot(f, "EMA fast", color=color.new(color.yellow, 0))
+plot(m, "EMA mid", color=color.new(color.orange, 0))
+plot(s, "EMA slow", color=color.new(color.red, 0))
+plotshape(okLong, "Pullback BUY", shape.triangleup, location.belowbar, color.new(color.lime, 0), size=size.small)
+plotshape(okShort, "Pullback SELL", shape.triangledown, location.abovebar, color.new(color.fuchsia, 0), size=size.small)
+
+if okLong
+    lots = lotsFor(dLong)
+    label.new(bar_index, low, str.format("BUY {0,number,#.##} lot\nSL {1,number,#.##}\nTP {2,number,#.##}", lots, slLong, close + tpUsd / (math.max(lots, 0.01) * contract)), style=label.style_label_up, size=size.tiny)
+if okShort
+    lots = lotsFor(dShort)
+    label.new(bar_index, high, str.format("SELL {0,number,#.##} lot\nSL {1,number,#.##}\nTP {2,number,#.##}", lots, slShort, close - tpUsd / (math.max(lots, 0.01) * contract)), style=label.style_label_down, size=size.tiny)
+
+alertcondition(okLong, "Pullback BUY", "XAUUSD 5m pullback BUY: close {{close}}. Run /xau-pullback check, then /xau-risk.")
+alertcondition(okShort, "Pullback SELL", "XAUUSD 5m pullback SELL: close {{close}}. Run /xau-pullback check, then /xau-risk.")

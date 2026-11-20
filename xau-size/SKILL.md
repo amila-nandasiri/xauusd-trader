@@ -31,8 +31,10 @@ python3 "${CLAUDE_SKILL_DIR}/size.py" --side buy --type limit --entry 4020 --sl 
 
 If `xau/config.json` does not exist, copy `config.example.json` from this
 folder to `xau/config.json` and go through it with the user in plain words:
-balance (only money they can afford to lose), risk per trade (1% default;
-0.5% while rebuilding after losses is sensible), daily loss stop, max trades
+balance (only money they can afford to lose), risk per trade as fixed
+dollars (`risk_per_trade_usd`, set to $20, with `tp_usd` $40 for 1:2) or as a
+percent (`risk_per_trade_pct`; a fixed $20 is 4% of a $500 account, so say what
+percent it is of their balance), daily loss stop ($40 = two losses), max trades
 per day, minimum R:R, max spread, allowed sessions, news blackout, their UTC
 offset (Maldives is +5). Ask them to confirm contract size, min lot, lot step
 and leverage from their MT5 symbol specification, not from memory.
@@ -44,8 +46,10 @@ the setup is wrong, from the chart), and target price or R:R. Ask for the
 spread shown in MT5 (MT5 shows points: 25 points = $0.25 on a 2-digit gold
 quote; on a 3-digit quote 250 points = $0.25). Run `size.py --write`.
 
-The maths: risk $ = balance x risk%; loss per lot = (stop distance +
-spread) x 100; lots = risk $ / loss per lot, **rounded down** to 0.01. If
+The maths: risk $ = `risk_per_trade_usd` ($20), or balance x risk%; loss
+per lot = (stop distance + spread) x 100; lots = risk $ / loss per lot,
+**rounded down** to 0.01; target = where it makes `tp_usd` ($40) unless
+`--tp` or `--rr` is given. If
 that is under 0.01 lot, it says how much 0.01 lot would risk and writes
 nothing: the answer is a tighter stop or no trade, never a bigger risk.
 

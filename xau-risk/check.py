@@ -35,6 +35,8 @@ LIMITS = {
     "risk_per_trade_pct": 1.0,
     "max_risk_per_trade_pct": 1.0,
     "max_daily_loss_pct": 3.0,
+    "max_risk_per_trade_usd": None,
+    "max_daily_loss_usd": None,
     "max_trades_per_day": 3,
     "max_open_positions": 1,
     "max_consecutive_losses": 2,
@@ -176,7 +178,10 @@ def check(trade, cfg, journal=None, calendar=None, now=None, spread=None):
     sp = float(spread if spread is not None else trade.get("spread") or 0)
     risk = lots * (dist + sp) * cfg["contract_size"]
     risk_pct = 100 * risk / balance
-    if risk_pct > cfg["max_risk_per_trade_pct"] + 1e-9:
+    if cfg.get("max_risk_per_trade_usd"):
+        if risk > cfg["max_risk_per_trade_usd"] + 1e-6:
+            block("risk", "risks $%.2f (spread included), over your $%.2f limit" % (risk, cfg["max_risk_per_trade_usd"]))
+    elif risk_pct > cfg["max_risk_per_trade_pct"] + 1e-9:
         block("risk", "risks $%.2f = %.2f%% of $%.2f, over your %.2f%% limit"
               % (risk, risk_pct, balance, cfg["max_risk_per_trade_pct"]))
 
@@ -186,7 +191,7 @@ def check(trade, cfg, journal=None, calendar=None, now=None, spread=None):
             block("reward:risk", "no take-profit, so reward:risk cannot be checked (min 1:%.2f)" % cfg["min_rr"])
     else:
         rr = abs(tp - entry) / dist
-        if rr + 1e-9 < cfg["min_rr"]:
+        if rr + 0.005 < cfg["min_rr"]:
             block("reward:risk", "1:%.2f is under your 1:%.2f minimum" % (rr, cfg["min_rr"]))
 
     # spread
@@ -207,7 +212,7 @@ def check(trade, cfg, journal=None, calendar=None, now=None, spread=None):
         block("daily trades", "%d trades already today, your limit is %d" % (st["count"], cfg["max_trades_per_day"]))
     if st["open"] >= cfg["max_open_positions"]:
         block("open positions", "%d already open, your limit is %d" % (st["open"], cfg["max_open_positions"]))
-    max_loss = balance * cfg["max_daily_loss_pct"] / 100
+    max_loss = cfg.get("max_daily_loss_usd") or balance * cfg["max_daily_loss_pct"] / 100
     lost = -min(st["realised"], 0)
     if lost >= max_loss:
         block("daily loss", "down $%.2f today, at your $%.2f daily stop. Done for today" % (lost, max_loss))
