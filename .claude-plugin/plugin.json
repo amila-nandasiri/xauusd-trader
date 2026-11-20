@@ -2,8 +2,21 @@
   "name": "xauusd-trader",
   "description": "6 Claude skills for trading gold (XAUUSD) on MT5: a 5m pullback setup with backtest, lot sizing from your stop, a risk gate with news blackouts, the exact MT5 ticket, sessions and alerts, and a trade journal. Never places an order.",
   "version": "1.1.0",
-  "author": {"name": "Amila Dewapriya"},
+  "author": {
+    "name": "Amila Dewapriya"
+  },
   "license": "MIT",
-  "keywords": ["claude-skills", "xauusd", "gold", "mt5", "metatrader", "forex", "risk-management", "position-sizing"],
-  "skills": "./"
+  "keywords": [
+    "claude-skills",
+    "xauusd",
+    "gold",
+    "mt5",
+    "metatrader",
+    "forex",
+    "risk-management",
+    "position-sizing"
+  ],
+  "skills": "./",
+  "homepage": "https://github.com/amila-nandasiri/xauusd-trader",
+  "repository": "https://github.com/amila-nandasiri/xauusd-trader"
 }

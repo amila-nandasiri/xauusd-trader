@@ -15,21 +15,21 @@ and you reply "yes" to that one trade.
 Paste this into Claude:
 
 ```
-https://github.com/<your-github-username>/xauusd-trader
+https://github.com/amila-nandasiri/xauusd-trader
 install skill
 ```
 
 Or in Claude Code, as a plugin:
 
 ```
-/plugin marketplace add <your-github-username>/xauusd-trader
+/plugin marketplace add amila-nandasiri/xauusd-trader
 /plugin install xauusd-trader@xauusd-trader
 ```
 
 Or copy the folders:
 
 ```bash
-git clone https://github.com/<your-github-username>/xauusd-trader.git
+git clone https://github.com/amila-nandasiri/xauusd-trader.git
 cp -r xauusd-trader/xau-* ~/.claude/skills/
 ```
 
